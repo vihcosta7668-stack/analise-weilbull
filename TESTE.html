@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sotreq GFC | Full Reliability Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cat-yellow: #FFCD00;
+            --cat-black: #101010;
+            --cat-white: #FFFFFF;
+            --cat-gray: #333333;
+            --cat-danger: #d32f2f;
+        }
+
+        body { font-family: 'Roboto Condensed', sans-serif; background-color: var(--cat-black); color: var(--cat-white); margin: 0; padding: 20px; }
+        .container { max-width: 1800px; margin: auto; }
+        
+        header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            padding: 15px 30px; background: var(--cat-black); 
+            border-bottom: 5px solid var(--cat-yellow); margin-bottom: 25px;
+        }
+        .logo-area h1 { margin: 0; font-size: 1.8rem; color: var(--cat-yellow); text-transform: uppercase; }
+
+        .btn-group { display: flex; gap: 10px; }
+
+        .control-panel { 
+            display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 20px; 
+            background: var(--cat-gray); padding: 20px; border-radius: 4px; margin-bottom: 25px;
+        }
+
+        .filter-group { display: flex; flex-direction: column; gap: 5px; }
+        label { font-size: 0.75rem; font-weight: 700; color: var(--cat-yellow); text-transform: uppercase; }
+        input, select { padding: 10px; background: #222; color: #fff; border: 1px solid #555; border-radius: 2px; }
+
+        .dashboard-main { display: none; flex-direction: column; gap: 30px; }
+        
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+        .card { background: var(--cat-gray); padding: 20px; border-radius: 2px; text-align: center; border-left: 4px solid var(--cat-yellow); }
+        .card h3 { margin: 0; font-size: 0.8rem; color: var(--cat-yellow); text-transform: uppercase; }
+        .card .value { font-size: 2.2rem; font-weight: 700; margin: 5px 0; }
+
+        .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .chart-box { background: #fff; padding: 25px; border-radius: 4px; height: 500px; position: relative; }
+        .chart-box h4 { color: #333; margin: 0 0 15px 0; border-bottom: 3px solid var(--cat-yellow); padding-bottom: 10px; font-size: 1.1rem; text-transform: uppercase;}
+
+        .status-section { background: var(--cat-gray); padding: 20px; border-radius: 4px; height: 500px; overflow-y: auto; }
+        .status-section h4 { color: var(--cat-yellow); margin: 0 0 15px 0; border-bottom: 1px solid #555; padding-bottom: 10px; text-transform: uppercase; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+        .tag-card { background: #222; padding: 12px; border-radius: 4px; border-top: 4px solid #666; }
+        .tag-card.alert { border-top-color: var(--cat-danger); }
+        .tag-card.ok { border-top-color: #2ecc71; }
+
+        .table-container { background: var(--cat-gray); padding: 20px; border-radius: 4px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; background: #222; color: var(--cat-yellow); padding: 12px; text-transform: uppercase; border-bottom: 2px solid var(--cat-yellow); }
+        td { padding: 10px; border-bottom: 1px solid #444; }
+        
+        .upload-btn { background: var(--cat-yellow); color: var(--cat-black); padding: 10px 20px; font-weight: 700; text-transform: uppercase; cursor: pointer; border: none; }
+        .clear-btn { background: var(--cat-danger); color: white; padding: 10px 20px; font-weight: 700; text-transform: uppercase; cursor: pointer; border: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div class="logo-area">
+            <h1>Sotreq <span style="color:white; font-weight:300;">GFC</span></h1>
+            <p style="margin:0; font-size:0.8rem; color:#aaa;">Engenharia de Confiabilidade | Weibull Analytics</p>
+        </div>
+        <div class="btn-group">
+            <button class="clear-btn" onclick="clearDashboard()">Limpar Dashboard</button>
+            <label for="histUploader" class="upload-btn">1. Histórico</label>
+            <input type="file" id="histUploader" style="display:none" accept=".xlsx">
+            <label for="vidaUploader" class="upload-btn">2. Vida Atual</label>
+            <input type="file" id="vidaUploader" style="display:none" accept=".xlsx">
+        </div>
+    </header>
+
+    <div class="control-panel">
+        <div class="filter-group">
+            <label>Intervalo de Datas</label>
+            <div style="display:flex; gap:5px">
+                <input type="date" id="calStart" onchange="syncFromCal()">
+                <input type="date" id="calEnd" onchange="syncFromCal()">
+            </div>
+            <input type="range" id="slideStart" oninput="syncFromSlide()" style="margin-top:10px">
+            <input type="range" id="slideEnd" oninput="syncFromSlide()">
+        </div>
+        <div class="filter-group"><label>Site</label><select id="siteFilter" onchange="updateFilters('site')"></select></div>
+        <div class="filter-group"><label>Frota (Modelo)</label><select id="frotaFilter" onchange="updateFilters('frota')"></select></div>
+        <div class="filter-group"><label>Componente</label><select id="compFilter" onchange="runAnalysis()"></select></div>
+    </div>
+
+    <div id="dashboard" class="dashboard-main">
+        <div class="stats-row">
+            <div class="card"><h3>Beta (β)</h3><div class="value" id="resBeta">-</div><small id="resDesc">-</small></div>
+            <div class="card"><h3>Eta (η)</h3><div class="value" id="resEta">-</div><small>Vida Útil (63.2%)</small></div>
+            <div class="card"><h3>MTTF</h3><div class="value" id="resMttf">-</div><small>Média para Falha</small></div>
+            <div class="card"><h3>B10</h3><div class="value" id="resB10">-</div><small>Risco de 50%</small></div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-box"><h4>CDF - Probabilidade de Falha Acumulada (%)</h4><canvas id="chartCDF"></canvas></div>
+            <div class="chart-box"><h4>R(t) - Confiabilidade (%)</h4><canvas id="chartRel"></canvas></div>
+            <div class="chart-box"><h4>Histograma de Vidas Removidas</h4><canvas id="chartHist"></canvas></div>
+            <div class="status-section">
+                <h4>Monitoramento de Vidas Atuais</h4>
+                <div class="status-grid" id="vidaAtivaGrid"></div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <h4>Detalhamento por TAG</h4>
+            <table id="detailsTable">
+                <thead>
+                    <tr>
+                        <th>TAG</th>
+                        <th>Frota</th>
+                        <th>Componente</th>
+                        <th>Horas na Troca</th>
+                        <th>Motivo Troca</th>
+                        <th>Origem</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="detailsBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let histData = [], currentLifeData = [], charts = {};
+let minLifeFilter = 0;
+
+const siteMap = {
+    "SALOBO": "SALOBO METAIS S A (SALOBO)",
+    "CARAJÁS": "VALE S A (CARAJÁS)",
+    "HYDRO": "MINERACAO PARAGOMINAS SA (PARAGOMINAS)",
+    "S11D": "VALE S A (MINA S11D)"
+};
+
+document.getElementById('histUploader').addEventListener('change', e => upload(e, 'hist'));
+document.getElementById('vidaUploader').addEventListener('change', e => upload(e, 'vida'));
+
+function upload(e, type) {
+    const reader = new FileReader();
+    reader.onload = evt => {
+        const wb = XLSX.read(new Uint8Array(evt.target.result), {type: 'array', cellDates: true});
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        if(type === 'hist') processHist(rows);
+        else processVidaAtual(rows);
+    };
+    reader.readAsArrayBuffer(e.target.files[0]);
+}
+
+function processHist(rows) {
+    histData = rows.map(r => {
+        const k = Object.keys(r);
+        const colHoras = k.find(x => x.toLowerCase().includes('horas'));
+        const colMotivo = k.find(x => x.toLowerCase().includes('motivo'));
+        const colTag = k.find(x => x.toLowerCase().includes('tag'));
+        const colFrota = k.find(x => x.toLowerCase().includes('frota'));
+        const colOrigem = k.find(x => x.toLowerCase().includes('origem'));
+        
+        let h = parseFloat(String(r[colHoras]).replace(/[^\d,.-]/g, '').replace(',', '.'));
+        return {
+            site: String(r[k.find(x => x.toLowerCase().includes('site'))] || 'N/A'),
+            tag: String(r[colTag] || 'S/T'),
+            frota: String(r[colFrota] || 'N/A'),
+            comp: String(r[k.find(x => x.toLowerCase().includes('componente'))] || ''),
+            horas: h,
+            data: new Date(r[k.find(x => x.toLowerCase().includes('data'))]),
+            motivo: String(r[colMotivo] || 'Não Informado'),
+            origem: String(r[colOrigem] || 'N/A'),
+            falha: !String(r[colMotivo] || "").toLowerCase().includes('planejada')
+        };
+    }).filter(d => !isNaN(d.horas) && d.horas > 0);
+
+    fillSelect('siteFilter', [...new Set(histData.map(d => d.site))]);
+    updateFilters('site');
+    document.getElementById('dashboard').style.display = 'flex';
+}
+
+function processVidaAtual(rows) {
+    currentLifeData = rows.map(r => {
+        const k = Object.keys(r);
+        const colCli = k.find(x => x.toLowerCase().includes('cliente'));
+        const colComp = k.find(x => x.toLowerCase().includes('componente'));
+        const colVue = k.find(x => x.toLowerCase().includes('vida útil estimada'));
+        const colAtu = k.find(x => x.toLowerCase().includes('horímetro atual estimado')) || k.find(x => x.toLowerCase().includes('último horímetro')) || k.find(x => x.toLowerCase().includes('atual'));
+        const colEquip = k.find(x => x.toLowerCase().includes('equipamento')) || k.find(x => x.toLowerCase().includes('frota')) || k.find(x => x.toLowerCase().includes('modelo'));
+
+        return {
+            cliente: String(r[colCli] || ''),
+            comp: String(r[colComp] || ''),
+            vue: parseFloat(r[colVue]) || 0,
+            horasAtuais: parseFloat(r[colAtu]) || 0,
+            tag: String(r[colEquip] || 'N/A')
+        };
+    }).filter(d => d.horasAtuais > 0);
+    runAnalysis();
+}
+
+function updateFilters(level) {
+    const s = document.getElementById('siteFilter').value;
+    if (level === 'site') fillSelect('frotaFilter', [...new Set(histData.filter(x => s === 'T' || x.site === s).map(x => x.frota))]);
+    const f = document.getElementById('frotaFilter').value;
+    if (level !== 'comp') fillSelect('compFilter', [...new Set(histData.filter(x => (s === 'T' || x.site === s) && (f === 'T' || x.frota === f)).map(x => x.comp))]);
+    
+    let filDates = histData.filter(d => (s === 'T' || d.site === s) && (f === 'T' || d.frota === f));
+    const ts = filDates.map(d => d.data.getTime()).filter(t => !isNaN(t));
+    if (ts.length > 0) {
+        const minTS = Math.min(...ts), maxTS = Math.max(...ts);
+        const sS = document.getElementById('slideStart'), sE = document.getElementById('slideEnd');
+        sS.min = sE.min = minTS; sS.max = sE.max = maxTS;
+        sS.value = minTS; sE.value = maxTS;
+        document.getElementById('calStart').value = new Date(minTS).toISOString().split('T')[0];
+        document.getElementById('calEnd').value = new Date(maxTS).toISOString().split('T')[0];
+    }
+    runAnalysis();
+}
+
+function runAnalysis() {
+    const s = document.getElementById('siteFilter').value, f = document.getElementById('frotaFilter').value, c = document.getElementById('compFilter').value;
+    const ds = document.getElementById('calStart').value, de = document.getElementById('calEnd').value;
+    if (!c || c === 'T' || !ds || !de) return;
+
+    const t1 = new Date(ds).getTime(), t2 = new Date(de).getTime();
+    let fil = histData.filter(d => (s === 'T' || d.site === s) && (f === 'T' || d.frota === f) && (d.comp === c) && (d.data.getTime() >= t1 && d.data.getTime() <= t2) && (d.horas >= minLifeFilter)).sort((a,b) => a.horas - b.horas);
+    
+    updateTable(fil);
+    renderHistogram(histData.filter(d => (s === 'T' || d.site === s) && (f === 'T' || d.frota === f) && (d.comp === c)));
+
+    const fails = fil.filter(d => d.falha);
+    if (fails.length < 2) return;
+
+    let n = fil.length, xL = [], yL = [];
+    fails.forEach((d, i) => {
+        let r = (i + 0.7) / (n + 0.4);
+        xL.push(Math.log(d.horas)); yL.push(Math.log(-Math.log(1 - r)));
+    });
+
+    let nR = xL.length, sX=0, sY=0, sXY=0, sXX=0;
+    for(let i=0; i<nR; i++){ sX+=xL[i]; sY+=yL[i]; sXY+=xL[i]*yL[i]; sXX+=xL[i]*xL[i]; }
+    const beta = (nR*sXY - sX*sY) / (nR*sXX - sX*sX);
+    const eta = Math.exp(-( (sY - beta*sX)/nR ) / beta);
+    
+    updateDisplay(beta, eta);
+    renderVidaAtual(s, f, c);
+}
+
+function renderVidaAtual(siteFiltro, frotaFiltro, compFiltro) {
+    const container = document.getElementById('vidaAtivaGrid');
+    container.innerHTML = "";
+    
+    const nomeLongoSite = siteMap[siteFiltro] || siteFiltro;
+
+    // Obtém a lista de frotas existentes no HISTÓRICO para o site filtrado
+    const frotasNoHistorico = [...new Set(histData
+        .filter(h => siteFiltro === 'T' || h.site === siteFiltro)
+        .map(h => h.frota)
+    )];
+
+    const filtrados = currentLifeData.filter(d => {
+        const matchSite = (siteFiltro === 'T' || d.cliente.includes(nomeLongoSite));
+        const matchComp = d.comp.toLowerCase().includes(compFiltro.toLowerCase());
+        
+        // REGRA SOLICITADA: Filtrar apenas frotas que existem na base histórica do site filtrado
+        // Além disso, se o filtro de Frota no topo não for 'TODOS', respeita ele também
+        const matchFrotaHist = frotasNoHistorico.some(f => d.tag.includes(f));
+        const matchFrotaFiltro = (frotaFiltro === 'T' || d.tag.includes(frotaFiltro));
+
+        return matchSite && matchComp && matchFrotaHist && matchFrotaFiltro;
+    });
+
+    if (filtrados.length === 0) {
+        container.innerHTML = "<p style='color:#aaa; padding:20px;'>Nenhum componente instalado encontrado para frotas com histórico neste site.</p>";
+        return;
+    }
+
+    filtrados.forEach(d => {
+        const perc = (d.horasAtuais / d.vue) * 100;
+        const alert = perc > 90;
+        container.innerHTML += `
+            <div class="tag-card ${alert ? 'alert' : 'ok'}">
+                <div style="color:var(--cat-yellow); font-weight:bold;">${d.tag}</div>
+                <div style="font-size:0.75rem; color:#fff">${d.comp}</div>
+                <div style="font-size:1rem; margin-top:5px; color:#fff">${Math.round(d.horasAtuais).toLocaleString()}h / ${Math.round(d.vue).toLocaleString()}h</div>
+                <div style="height:4px; background:#444; margin:5px 0"><div style="width:${Math.min(perc,100)}%; height:100%; background:${alert ? '#d32f2f' : '#2ecc71'}"></div></div>
+                <div style="font-size:0.65rem; text-align:right; color:#aaa">${perc.toFixed(1)}% VUE</div>
+            </div>`;
+    });
+}
+
+function createChart(id, label, x, y, color, xLabel, yLabel) {
+    if(charts[id]) charts[id].destroy();
+    charts[id] = new Chart(document.getElementById(id), {
+        type: 'line',
+        data: { labels: x, datasets: [{ label: label, data: y, borderColor: color, backgroundColor: color+'15', fill: true, pointRadius: 2, tension: 0.2 }] },
+        options: { 
+            responsive: true, maintainAspectRatio: false,
+            plugins: { 
+                legend: { display: true, position: 'top', labels: { color: '#333', font: { weight: 'bold' } } },
+                tooltip: { enabled: true }
+            },
+            scales: {
+                y: { 
+                    beginAtZero: true, 
+                    ticks: { color: '#666' }, 
+                    grid: { color: '#eee' },
+                    title: { display: true, text: yLabel, color: '#333', font: { size: 14, weight: 'bold' } }
+                },
+                x: { 
+                    ticks: { color: '#666' }, 
+                    grid: { color: '#eee' },
+                    title: { display: true, text: xLabel, color: '#333', font: { size: 14, weight: 'bold' } }
+                }
+            }
+        }
+    });
+}
+
+function renderHistogram(data) {
+    const ctx = document.getElementById('chartHist').getContext('2d');
+    const binSize = 5000;
+    const bins = {};
+    data.forEach(d => {
+        const bin = Math.floor(d.horas / binSize) * binSize;
+        bins[bin] = (bins[bin] || 0) + 1;
+    });
+    const labels = Object.keys(bins).sort((a,b) => a-b);
+    if(charts['hist']) charts['hist'].destroy();
+    charts['hist'] = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: labels.map(l => `${l}h`), datasets: [{ label: 'Qtd. Remoções', data: labels.map(l => bins[l]), backgroundColor: labels.map(l => parseInt(l) < minLifeFilter ? '#CCC' : '#FFCD00') }] },
+        options: { 
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: true, labels: { color: '#333', font: { weight: 'bold' } } } },
+            scales: {
+                y: { title: { display: true, text: 'Frequência (Unidades)', color: '#333', font: { weight: 'bold' } } },
+                x: { title: { display: true, text: 'Faixas de Horímetro (h)', color: '#333', font: { weight: 'bold' } } }
+            },
+            onClick: (e, elements) => { if(elements.length > 0) { minLifeFilter = parseInt(labels[elements[0].index]); runAnalysis(); } } 
+        }
+    });
+}
+
+function updateDisplay(beta, eta) {
+    document.getElementById('resBeta').innerText = beta.toFixed(2);
+    document.getElementById('resEta').innerText = Math.round(eta).toLocaleString() + ' h';
+    document.getElementById('resMttf').innerText = Math.round(eta * 0.89).toLocaleString() + ' h';
+    document.getElementById('resB10').innerText = Math.round(eta * Math.pow(-Math.log(0.5), 1/beta)).toLocaleString() + ' h';
+    document.getElementById('resDesc').innerText = beta < 1 ? "Mortalidade Infantil" : (beta <= 1.5 ? "Aleatórias" : "Desgaste");
+
+    let labels = [], cdf = [], rel = [];
+    for(let i=0; i<=eta*1.5; i+= (eta*1.5/50)) {
+        labels.push(Math.round(i));
+        let c = 1 - Math.exp(-Math.pow(i/eta, beta));
+        cdf.push((c*100).toFixed(1)); rel.push(((1-c)*100).toFixed(1));
+    }
+    createChart('chartCDF', 'Probabilidade de Falha Acumulada (%)', labels, cdf, '#FFCD00', 'Horas de Operação (h)', 'Probabilidade (%)');
+    createChart('chartRel', 'Confiabilidade / Sobrevivência (%)', labels, rel, '#3498db', 'Horas de Operação (h)', 'Confiabilidade (%)');
+}
+
+function updateTable(data) {
+    const tbody = document.getElementById('detailsBody');
+    tbody.innerHTML = "";
+    data.forEach(d => {
+        tbody.innerHTML += `<tr><td style="color:var(--cat-yellow); font-weight:bold;">${d.tag}</td><td>${d.frota}</td><td>${d.comp}</td><td>${Math.round(d.horas).toLocaleString()} h</td><td>${d.motivo}</td><td>${d.origem}</td><td class="${d.falha ? 'badge-fail' : ''}">${d.falha ? 'FALHA' : 'SUSPENSÃO'}</td></tr>`;
+    });
+}
+
+function fillSelect(id, list) {
+    const el = document.getElementById(id);
+    const old = el.value;
+    el.innerHTML = '<option value="T">-- TODOS --</option>';
+    list.sort().forEach(i => el.innerHTML += `<option value="${i}">${i}</option>`);
+    if(list.includes(old)) el.value = old;
+}
+function syncFromSlide() {
+    const s = document.getElementById('slideStart'), e = document.getElementById('slideEnd');
+    if (parseInt(s.value) > parseInt(e.value)) [s.value, e.value] = [e.value, s.value];
+    document.getElementById('calStart').value = new Date(parseInt(s.value)).toISOString().split('T')[0];
+    document.getElementById('calEnd').value = new Date(parseInt(e.value)).toISOString().split('T')[0];
+    runAnalysis();
+}
+function syncFromCal() {
+    document.getElementById('slideStart').value = new Date(document.getElementById('calStart').value).getTime();
+    document.getElementById('slideEnd').value = new Date(document.getElementById('calEnd').value).getTime();
+    runAnalysis();
+}
+function clearDashboard() { location.reload(); }
+</script>
+</body>
+</html>
